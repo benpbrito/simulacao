@@ -4,7 +4,7 @@ import random
 import time
 import plotly.graph_objects as go
 
-st.set_page_config(page_title="Simulação de Fila - TechService", page_icon="📈", layout="wide")
+st.set_page_config(page_title="Simulação de Fila", page_icon="📈", layout="wide")
 
 custom_css = """
 <style>
