@@ -112,7 +112,7 @@ def plotar_grafico(tempos, filas, titulo):
     )
     st.plotly_chart(fig, use_container_width=True)
 
-st.title("📈 Simulação de Otimização de Filas - TechService Solutions")
+st.title("📈 Simulação de Otimização de Filas")
 
 tab1, tab2, tab3 = st.tabs(["Padrão", "Ideal", "Personalizado"])
 
