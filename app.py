@@ -25,31 +25,34 @@ h1, h2, h3 {
 """
 st.markdown(custom_css, unsafe_allow_html=True)
 
-def atendimento_cliente(env, guiches, tempos_fila, tempo_atendimento_medio, taxa_desistencia):
+def atendimento_cliente(env, guiches, tempos_fila, tempo_atendimento_medio, tempo_maximo_espera, estatisticas):
     chegada = env.now
     with guiches.request() as request:
-        resultado = yield request | env.timeout(random.expovariate(taxa_desistencia))
+        resultado = yield request | env.timeout(tempo_maximo_espera)
 
         if request in resultado:
             espera = env.now - chegada
             tempos_fila.append((env.now, len(guiches.queue)))
             yield env.timeout(random.expovariate(1.0 / tempo_atendimento_medio))
+            estatisticas["atendidos"] += 1
         else:
             tempos_fila.append((env.now, len(guiches.queue)))
+            estatisticas["desistentes"] += 1
 
-def gerar_clientes(env, guiches, taxa_chegada, tempo_atendimento_medio, taxa_desistencia, tempos_fila):
+def gerar_clientes(env, guiches, taxa_chegada, tempo_atendimento_medio, tempo_maximo_espera, tempos_fila, estatisticas):
     cliente_id = 0
     while True:
         yield env.timeout(random.expovariate(taxa_chegada))
         cliente_id += 1
-        env.process(atendimento_cliente(env, guiches, tempos_fila, tempo_atendimento_medio, taxa_desistencia))
+        env.process(atendimento_cliente(env, guiches, tempos_fila, tempo_atendimento_medio, tempo_maximo_espera, estatisticas))
 
-def rodar_simulacao(taxa_chegada, tempo_atendimento_medio, num_guiches, tempo_funcionamento, taxa_desistencia, modo_progressivo=False, placeholder_grafico=None, tempo_real_segundos=0.1):
+def rodar_simulacao(taxa_chegada, tempo_atendimento_medio, num_guiches, tempo_funcionamento, tempo_maximo_espera, modo_progressivo=False, placeholder_grafico=None, tempo_real_segundos=0.1):
     env = simpy.Environment()
     guiches = simpy.Resource(env, capacity=num_guiches)
     tempos_fila = []
+    estatisticas = {"atendidos": 0, "desistentes": 0}
 
-    env.process(gerar_clientes(env, guiches, taxa_chegada, tempo_atendimento_medio, taxa_desistencia, tempos_fila))
+    env.process(gerar_clientes(env, guiches, taxa_chegada, tempo_atendimento_medio, tempo_maximo_espera, tempos_fila, estatisticas))
 
     if modo_progressivo:
         fig = go.Figure()
@@ -75,7 +78,6 @@ def rodar_simulacao(taxa_chegada, tempo_atendimento_medio, num_guiches, tempo_fu
 
             if env.now - last_minute >= 1:
                 last_minute = env.now
-
                 fila_atual = len(guiches.queue)
                 tempos.append(env.now)
                 filas.append(fila_atual)
@@ -87,18 +89,16 @@ def rodar_simulacao(taxa_chegada, tempo_atendimento_medio, num_guiches, tempo_fu
                     placeholder_grafico.plotly_chart(fig, use_container_width=True)
 
                 print(f"[DEBUG] Tempo: {env.now:.2f} min | Fila: {fila_atual} clientes")
-
                 time.sleep(tempo_real_segundos)
 
-        return tempos, filas
+        return tempos, filas, estatisticas
 
     else:
         env.run(until=tempo_funcionamento)
-
         tempos = [t[0] for t in tempos_fila]
         filas = [t[1] for t in tempos_fila]
 
-        return tempos, filas
+        return tempos, filas, estatisticas
 
 def plotar_grafico(tempos, filas, titulo):
     fig = go.Figure()
@@ -116,33 +116,43 @@ st.title("📈 Simulação de Otimização de Filas")
 
 tab1, tab2, tab3 = st.tabs(["Padrão", "Ideal", "Personalizado"])
 
+# Parâmetros
 taxa_chegada_padrao = 120 / 480
 tempo_atendimento_medio_padrao = 10
 num_guiches_padrao = 2
 tempo_funcionamento_padrao = 480
-taxa_desistencia_padrao = 0.15
+tempo_maximo_espera_padrao = 10
 
 taxa_chegada_ideal = 100 / 480
 tempo_atendimento_medio_ideal = 8
 num_guiches_ideal = 3
-taxa_desistencia_ideal = 0.05
+tempo_maximo_espera_ideal = 20
 
 with tab1:
     st.header("Fila - Cenário Padrão")
     st.markdown("""
     **Descrição:**  
     Neste cenário padrão, a taxa de chegada de clientes é moderada, o número de guichês é limitado (2 guichês) 
-    e a taxa de desistência é relativamente alta (15%).  
-    Este é um cenário comum para empresas que ainda não otimizaram seu processo de atendimento.
+    e o tempo máximo de espera permitido é de 10 minutos.  
+    Clientes que esperam mais do que isso desistem do atendimento.
     """)
-    tempos, filas = rodar_simulacao(
+
+    st.markdown("""
+    **Parâmetros do Gráfico:**  
+    A simulação considera uma taxa de chegada de **120 clientes em 480 minutos** (0,25 clientes/minuto), 
+    com **tempo médio de atendimento de 10 minutos**, operando com **2 guichês** durante **480 minutos (8 horas)**.  
+    O tempo máximo de espera permitido por cliente é de **10 minutos**.
+    """)
+
+    tempos, filas, stats = rodar_simulacao(
         taxa_chegada_padrao,
         tempo_atendimento_medio_padrao,
         num_guiches_padrao,
         tempo_funcionamento_padrao,
-        taxa_desistencia_padrao,
+        tempo_maximo_espera_padrao,
         modo_progressivo=False
     )
+    st.info(f"👥 Clientes atendidos: {stats['atendidos']} | ❌ Clientes desistentes: {stats['desistentes']}")
     plotar_grafico(tempos, filas, "Fila - Parâmetros Padrão")
 
 with tab2:
@@ -150,19 +160,28 @@ with tab2:
     st.markdown("""
     **Descrição:**  
     Neste cenário ideal, otimizamos o atendimento reduzindo o tempo médio de atendimento, aumentando o número de guichês 
-    e diminuindo drasticamente a taxa de desistência dos clientes.  
+    e permitindo que os clientes esperem até 20 minutos.  
     Este é um exemplo de uma operação bem gerida.
     """)
-    tempos, filas = rodar_simulacao(
+
+    st.markdown("""
+    **Parâmetros do Gráfico:**  
+    A simulação considera uma taxa de chegada de **100 clientes em 480 minutos** (aproximadamente 0,21 clientes/minuto), 
+    com **tempo médio de atendimento de 8 minutos**, operando com **3 guichês** durante **480 minutos (8 horas)**.  
+    O tempo máximo de espera permitido por cliente é de **20 minutos**.
+    """)
+
+    tempos, filas, stats = rodar_simulacao(
         taxa_chegada_ideal,
         tempo_atendimento_medio_ideal,
         num_guiches_ideal,
         tempo_funcionamento_padrao,
-        taxa_desistencia_ideal,
+        tempo_maximo_espera_ideal,
         modo_progressivo=False
     )
+    st.info(f"👥 Clientes atendidos: {stats['atendidos']} | ❌ Clientes desistentes: {stats['desistentes']}")
     plotar_grafico(tempos, filas, "Fila - Parâmetros Ideais")
-
+    
 
 with tab3:
     st.header("Fila - Cenário Personalizado")
@@ -172,21 +191,20 @@ with tab3:
         taxa_chegada_personalizada = st.slider("Taxa de chegada (clientes/hora)", 5, 30, 15) / 60
         tempo_atendimento_medio_personalizado = st.slider("Tempo médio de atendimento (minutos)", 5, 20, 10)
         num_guiches_personalizado = st.slider("Número de guichês disponíveis", 1, 5, 2)
-        taxa_desistencia_personalizada = st.slider("Taxa de desistência (%)", 0, 50, 15) / 100
+        tempo_maximo_espera_personalizado = st.slider("Tempo máximo de espera permitido (minutos)", 1, 60, 10)
         tempo_real_segundos = st.slider("Velocidade de Simulação (segundos para 1 minuto)", 0.05, 1.0, 0.1)
-
         submit_button = st.form_submit_button(label="🎬 Rodar Simulação Personalizada")
 
     if submit_button:
-        rodar_simulacao(
+        tempos, filas, stats = rodar_simulacao(
             taxa_chegada_personalizada,
             tempo_atendimento_medio_personalizado,
             num_guiches_personalizado,
             tempo_funcionamento_padrao,
-            taxa_desistencia_personalizada,
+            tempo_maximo_espera_personalizado,
             modo_progressivo=True,
             placeholder_grafico=placeholder3,
             tempo_real_segundos=tempo_real_segundos
         )
-
+        st.info(f"👥 Clientes atendidos: {stats['atendidos']} | ❌ Clientes desistentes: {stats['desistentes']}")
         st.success("✅ Simulação finalizada!")
