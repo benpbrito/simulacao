@@ -29,6 +29,13 @@
     .slider-container {
       margin-bottom: 2rem;
     }
+    .media-espera-texto {
+      margin-top: 0.75rem;
+      font-weight: 500;
+      color: #f39c12;
+      font-size: 1.2rem;
+      text-align: center;
+    }
   </style>
 </head>
 <body>
@@ -57,9 +64,9 @@
           <div><span id="guichesVal">2</span> guichês</div>
         </div>
         <div class="col-md-3">
-          <label for="taxaDesistencia" class="form-label">Taxa de Desistência (%)</label>
-          <input type="range" class="form-range" min="0" max="50" value="15" id="taxaDesistencia">
-          <div><span id="taxaDesistenciaVal">15</span>%</div>
+          <label for="tempoDesistencia" class="form-label">Tempo de Tolerância para Desistência (min)</label>
+          <input type="range" class="form-range" id="tempoDesistencia" min="1" max="30" value="4">
+          <span id="tempoDesistenciaValue">4 min</span>
         </div>
       </div>
     </div>
@@ -92,6 +99,7 @@
         <div class="dashboard-card">
           <div class="chart-title">Média de Espera (min)</div>
           <div id="mediaEspera"></div>
+          <div>Média: <span id="mediaEsperaFinal" class="total-value">0 minutos</span></div>
         </div>
       </div>
     </div>
@@ -112,44 +120,47 @@
     </div>
   </div>
 
-  <script>
-    const toggleBtn = document.getElementById("toggleParametros");
-    const parametrosDiv = document.getElementById("parametros");
-    toggleBtn.addEventListener("click", () => {
-      parametrosDiv.style.display = parametrosDiv.style.display === "none" ? "block" : "none";
+<script>
+const toggleBtn = document.getElementById("toggleParametros");
+const parametrosDiv = document.getElementById("parametros");
+toggleBtn.addEventListener("click", () => {
+  parametrosDiv.style.display = parametrosDiv.style.display === "none" ? "block" : "none";
+});
+
+const sliders = ["taxaChegada", "tempoAtendimento", "guiches", "tempoDesistencia"];
+sliders.forEach(id => {
+  const slider = document.getElementById(id);
+  const label = document.getElementById(id + "Val");
+  if (label) {
+    slider.addEventListener("input", () => {
+      label.textContent = slider.value;
     });
+  }
+});
 
-    const sliders = ["taxaChegada", "tempoAtendimento", "guiches", "taxaDesistencia"];
-    sliders.forEach(id => {
-      const slider = document.getElementById(id);
-      const label = document.getElementById(id + "Val");
-      slider.addEventListener("input", () => {
-        label.textContent = slider.value;
-      });
-    });
+let chartClientesChegando, chartClientesAtendidos, chartClientesDesistentes, chartMediaEspera, chartGraficoCircular, chartGraficoGeral;
 
-    // Inicializa gráficos com dados vazios
-    let chartClientesChegando, chartClientesAtendidos, chartClientesDesistentes, chartMediaEspera, chartGraficoCircular, chartGraficoGeral;
-
-    function criarGraficoLinha(selector, titulo, cor) {
-      return new ApexCharts(document.querySelector(selector), {
-        chart: {
-          type: 'area',
-          height: 160,
-          sparkline: { enabled: true },
-        },
-        stroke: { curve: 'smooth' },
-        series: [{ name: titulo, data: [] }],
-        colors: [cor],
-        tooltip: { fixed: { enabled: false }, x: { show: false }, y: { title: { formatter: () => '' } }, marker: { show: false } }
-        });
+function criarGraficoLinha(selector, titulo, cor) {
+  return new ApexCharts(document.querySelector(selector), {
+    chart: { type: 'area', height: 160, sparkline: { enabled: true }},
+    stroke: { curve: 'smooth' },
+    series: [{ name: titulo, data: [] }],
+    colors: [cor],
+    tooltip: {
+      fixed: { enabled: false },
+      x: { show: false },
+      y: { title: { formatter: () => '' }},
+      marker: { show: false }
     }
-    function criarGraficoDonut(selector) {
+  });
+}
+
+function criarGraficoDonut(selector) {
   return new ApexCharts(document.querySelector(selector), {
     chart: { type: 'donut', height: 300 },
-    labels: ['Chegaram', 'Atendidos', 'Desistiram'],
+    labels: ['Atendidos', 'Desistiram'],
     series: [],
-    colors: ['#3498db', '#28a745', '#dc3545'],
+    colors: ['#28a745', '#dc3545'],
     legend: { position: 'bottom' }
   });
 }
@@ -165,12 +176,10 @@ function criarGraficoLinhaGeral(selector) {
   });
 }
 
-// Cria gráficos e renderiza
 chartClientesChegando = criarGraficoLinha("#clientesChegando", "Chegadas", "#3498db");
 chartClientesAtendidos = criarGraficoLinha("#clientesAtendidos", "Atendidos", "#28a745");
 chartClientesDesistentes = criarGraficoLinha("#clientesDesistentes", "Desistentes", "#dc3545");
 chartMediaEspera = criarGraficoLinha("#mediaEspera", "Espera Média", "#f39c12");
-
 chartGraficoCircular = criarGraficoDonut("#graficoCircular");
 chartGraficoGeral = criarGraficoLinhaGeral("#graficoGeral");
 
@@ -181,26 +190,28 @@ chartMediaEspera.render();
 chartGraficoCircular.render();
 chartGraficoGeral.render();
 
-// Função para atualizar gráficos com dados do backend
 function atualizarGraficos(data) {
   const stats = data.stats;
   const tempos = data.tempos;
 
-  // Atualizar gráficos pequenos
   chartClientesChegando.updateSeries([{ data: stats.clientes_chegando }]);
   chartClientesAtendidos.updateSeries([{ data: stats.clientes_atendidos }]);
   chartClientesDesistentes.updateSeries([{ data: stats.clientes_desistentes }]);
   chartMediaEspera.updateSeries([{ data: stats.media_espera }]);
 
-  // Atualizar totais
   document.getElementById("totalChegando").textContent = stats.total_chegaram;
   document.getElementById("totalAtendidos").textContent = stats.total_atendidos;
   document.getElementById("totalDesistentes").textContent = stats.total_desistentes;
 
-  // Atualizar gráfico donut
-  chartGraficoCircular.updateSeries([stats.total_chegaram, stats.total_atendidos, stats.total_desistentes]);
+  // Atualiza média final de espera
+  const mediaFinal = stats.media_espera.length > 0
+    ? (stats.media_espera.reduce((a, b) => a + b, 0) / stats.media_espera.length).toFixed(1)
+    : 0;
+  document.getElementById("mediaEsperaFinal").textContent = `${mediaFinal} minutos`;
 
-  // Atualizar gráfico geral com todas as séries
+  // Gráfico donut atualizado apenas com atendidos e desistentes
+  chartGraficoCircular.updateSeries([stats.total_atendidos, stats.total_desistentes]);
+
   chartGraficoGeral.updateOptions({
     xaxis: { categories: tempos }
   });
@@ -208,28 +219,27 @@ function atualizarGraficos(data) {
     { name: 'Chegando', data: stats.clientes_chegando },
     { name: 'Atendidos', data: stats.clientes_atendidos },
     { name: 'Desistentes', data: stats.clientes_desistentes },
-    { name: 'Espera', data: stats.media_espera },
+    { name: 'Espera', data: stats.media_espera }
   ]);
 }
 
-// Enviar dados para o backend e receber resultados
 document.getElementById("rodarSimulacao").addEventListener("click", () => {
-  const params = {
-    taxaChegada: document.getElementById("taxaChegada").value,
-    tempoAtendimento: document.getElementById("tempoAtendimento").value,
-    guiches: document.getElementById("guiches").value,
-    taxaDesistencia: document.getElementById("taxaDesistencia").value / 100
+  const data = {
+    taxaChegada: parseFloat(document.getElementById("taxaChegada").value),
+    tempoAtendimento: parseFloat(document.getElementById("tempoAtendimento").value),
+    guiches: parseInt(document.getElementById("guiches").value),
+    tempoDesistencia: parseFloat(document.getElementById("tempoDesistencia").value),
   };
 
   fetch("/simular", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(params)
+    body: JSON.stringify(data)
   })
   .then(res => res.json())
-  .then(data => {
-    atualizarGraficos(data);
-  })
+  .then(data => atualizarGraficos(data))
   .catch(err => console.error("Erro na simulação:", err));
 });
-</script> </body> </html>
+</script>
+</body>
+</html>
