@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>📊 Análise de fluxo</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+    <style>
+      body {
+        background: #f8f9fa;
+      }
+      .dashboard-card {
+        background: white;
+        border-radius: 1rem;
+        padding: 1.5rem;
+        box-shadow: 0 0.5rem 1rem rgba(0,0,0,0.1);
+        margin-bottom: 1.5rem;
+      }
+      .chart-title {
+        font-weight: 600;
+        font-size: 1rem;
+        margin-bottom: 0.5rem;
+      }
+      .total-value {
+        font-size: 1.4rem;
+        font-weight: bold;
+      }
+      .offcanvas-end {
+        width: 350px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container py-4">
+      <h2 class="mb-4">📊 Simulação de Fila</h2>
+
+      <div class="mb-4">
+        <button class="btn btn-primary" data-bs-toggle="offcanvas" data-bs-target="#parametrosMenu" aria-controls="parametrosMenu">
+          🎛️ Ajustar Parâmetros
+        </button>
+      </div>
+
+      <!-- Menu lateral de parâmetros -->
+      <div class="offcanvas offcanvas-end" tabindex="-1" id="parametrosMenu" aria-labelledby="parametrosMenuLabel">
+        <div class="offcanvas-header">
+          <h5 class="offcanvas-title" id="parametrosMenuLabel">Parâmetros da Simulação</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Fechar"></button>
+        </div>
+        <div class="offcanvas-body">
+          <div class="mb-3">
+            <label for="taxaChegada" class="form-label">Taxa de Chegada (clientes/hora)</label>
+            <input type="range" class="form-range" min="0" max="240" value="30" onchange="rodarSimulacao()" oninput="rodarSimulacao()" id="taxaChegada">
+            <div><span id="taxaChegadaVal">30</span> clientes/hora</div>
+          </div>
+          <div class="mb-3">
+            <label for="tempoAtendimento" class="form-label">Tempo Médio de Atendimento (min)</label>
+            <input type="range" class="form-range" min="1" max="30" value="10" onchange="rodarSimulacao()" oninput="rodarSimulacao()" id="tempoAtendimento">
+            <div><span id="tempoAtendimentoVal">10</span> minutos</div>
+          </div>
+          <div class="mb-3">
+            <label for="guiches" class="form-label">Número de Guichês</label>
+            <input type="range" class="form-range" min="1" max="10" value="2" onchange="rodarSimulacao()" oninput="rodarSimulacao()" id="guiches">
+            <div><span id="guichesVal">2</span> guichês</div>
+          </div>
+          <div class="mb-3">
+            <label for="tempoDesistencia" class="form-label">Tempo de Tolerância para Desistência (min)</label>
+            <input type="range" class="form-range" min="1" max="30" value="4" onchange="rodarSimulacao()" oninput="rodarSimulacao()" id="tempoDesistencia">
+            <div><span id="tempoDesistenciaVal">4</span> minutos</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row g-4">
+        <div class="col-md-3">
+          <div class="dashboard-card">
+            <div class="chart-title">Clientes Chegando</div>
+            <div id="clientesChegando"></div>
+            <div>Total: <span id="totalChegando" class="total-value">0</span></div>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="dashboard-card">
+            <div class="chart-title">Clientes Atendidos</div>
+            <div id="clientesAtendidos"></div>
+            <div>Total: <span id="totalAtendidos" class="total-value">0</span></div>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="dashboard-card">
+            <div class="chart-title">Clientes Desistentes</div>
+            <div id="clientesDesistentes"></div>
+            <div>Total: <span id="totalDesistentes" class="total-value">0</span></div>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="dashboard-card">
+            <div class="chart-title">Média de Espera (min)</div>
+            <div id="mediaEspera"></div>
+            <div>Média: <span id="mediaEsperaFinal" class="total-value">0 minutos</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row mt-5">
+        <div class="col-md-6">
+          <div class="dashboard-card">
+            <div class="chart-title">Resumo Total do Dia</div>
+            <div id="graficoCircular"></div>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <div class="dashboard-card">
+            <div class="chart-title">Evolução Geral</div>
+            <div id="graficoGeral"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const sliders = ["taxaChegada", "tempoAtendimento", "guiches", "tempoDesistencia"];
+      sliders.forEach(id => {
+        const slider = document.getElementById(id);
+        const label = document.getElementById(id + "Val");
+        if (label) {
+          slider.addEventListener("input", () => {
+            label.textContent = slider.value;
+          });
+        }
+      });
+
+      let chartClientesChegando, chartClientesAtendidos, chartClientesDesistentes, chartMediaEspera, chartGraficoCircular, chartGraficoGeral;
+
+      function criarGraficoLinha(selector, titulo, cor) {
+        return new ApexCharts(document.querySelector(selector), {
+          chart: { type: 'area', height: 160, sparkline: { enabled: true }},
+          stroke: { curve: 'smooth' },
+          series: [{ name: titulo, data: [] }],
+          colors: [cor],
+          tooltip: {
+            fixed: { enabled: false },
+            x: { show: false },
+            y: { title: { formatter: () => '' }},
+            marker: { show: false }
+          }
+        });
+      }
+
+      function criarGraficoDonut(selector) {
+        return new ApexCharts(document.querySelector(selector), {
+          chart: { type: 'donut', height: 300 },
+          labels: ['Atendidos', 'Desistiram'],
+          series: [],
+          colors: ['#28a745', '#dc3545'],
+          legend: { position: 'bottom' }
+        });
+      }
+
+      function criarGraficoLinhaGeral(selector) {
+        return new ApexCharts(document.querySelector(selector), {
+          chart: { type: 'line', height: 300 },
+          stroke: { curve: 'smooth', width: 3 },
+          series: [],
+          xaxis: { categories: [], title: { text: 'Tempo (minutos)' } },
+          yaxis: { title: { text: 'Quantidade / Tempo Médio (min)' } },
+          colors: ['#3498db', '#28a745', '#dc3545', '#f39c12']
+        });
+      }
+
+      chartClientesChegando = criarGraficoLinha("#clientesChegando", "Chegadas", "#3498db");
+      chartClientesAtendidos = criarGraficoLinha("#clientesAtendidos", "Atendidos", "#28a745");
+      chartClientesDesistentes = criarGraficoLinha("#clientesDesistentes", "Desistentes", "#dc3545");
+      chartMediaEspera = criarGraficoLinha("#mediaEspera", "Espera Média", "#f39c12");
+      chartGraficoCircular = criarGraficoDonut("#graficoCircular");
+      chartGraficoGeral = criarGraficoLinhaGeral("#graficoGeral");
+
+      chartClientesChegando.render();
+      chartClientesAtendidos.render();
+      chartClientesDesistentes.render();
+      chartMediaEspera.render();
+      chartGraficoCircular.render();
+      chartGraficoGeral.render();
+
+      function atualizarGraficos(data) {
+        const stats = data.stats;
+        const tempos = data.tempos;
+
+        chartClientesChegando.updateSeries([{ data: stats.clientes_chegando }]);
+        chartClientesAtendidos.updateSeries([{ data: stats.clientes_atendidos }]);
+        chartClientesDesistentes.updateSeries([{ data: stats.clientes_desistentes }]);
+        chartMediaEspera.updateSeries([{ data: stats.media_espera }]);
+
+        document.getElementById("totalChegando").textContent = stats.total_chegaram;
+        document.getElementById("totalAtendidos").textContent = stats.total_atendidos;
+        document.getElementById("totalDesistentes").textContent = stats.total_desistentes;
+
+        const mediaFinal = stats.media_espera.length > 0
+          ? (stats.media_espera.reduce((a, b) => a + b, 0) / stats.media_espera.length).toFixed(1)
+          : 0;
+        document.getElementById("mediaEsperaFinal").textContent = `${mediaFinal} minutos`;
+
+        chartGraficoCircular.updateSeries([stats.total_atendidos, stats.total_desistentes]);
+
+        chartGraficoGeral.updateOptions({
+          xaxis: { categories: tempos }
+        });
+        chartGraficoGeral.updateSeries([
+          { name: 'Chegando', data: stats.clientes_chegando },
+          { name: 'Atendidos', data: stats.clientes_atendidos },
+          { name: 'Desistentes', data: stats.clientes_desistentes },
+          { name: 'Espera', data: stats.media_espera }
+        ]);
+      }
+
+      function rodarSimulacao(){
+        const data = {
+          taxaChegada: parseFloat(document.getElementById("taxaChegada").value),
+          tempoAtendimento: parseFloat(document.getElementById("tempoAtendimento").value),
+          guiches: parseInt(document.getElementById("guiches").value),
+          tempoDesistencia: parseFloat(document.getElementById("tempoDesistencia").value),
+        };
+
+        fetch("/simular", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data)
+        })
+        .then(res => res.json())
+        .then(data => atualizarGraficos(data))
+        .catch(err => console.error("Erro na simulação:", err));
+      }
+
+      document.addEventListener("DOMContentLoaded", () => {
+        rodarSimulacao();
+      });
+    </script>
+  </body>
+</html>
